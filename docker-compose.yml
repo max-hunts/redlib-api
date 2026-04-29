@@ -1,0 +1,8 @@
+services:
+  redlib:
+    image: ghcr.io/silvenga/redlib@sha256:d76693a3efff4a04c5229ace2f8c4175eb0dc373f0fdad1172a3324cab00c55f
+    restart: unless-stopped
+    ports:
+      - "8089:8080"
+
+  # TODO Phase 4: api service (depends_on: [redlib], REDLIB_BASE_URL=http://redlib:8080)
