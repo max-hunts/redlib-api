@@ -169,6 +169,8 @@ def _after_token(soup: BeautifulSoup) -> str | None:
 
 def _parse_post(div: Tag) -> Post:
     """Parse a single `div.post` into a Post model (defensive — never raises)."""
+    post_id: str | None = None
+    post_url: str | None = None
     try:
         nsfw = "nsfw" in (div.get("class") or [])
 
@@ -182,7 +184,6 @@ def _parse_post(div: Tag) -> Post:
         thumb_tag = div.find("img", class_="post_thumbnail")
 
         post_url = _attr(title_tag, "href")
-        post_id: str | None = None
         if post_url:
             m = re.search(r"/comments/([^/]+)/", post_url)
             if m:
@@ -219,7 +220,7 @@ def _parse_post(div: Tag) -> Post:
             media_urls=media_urls,
         )
     except Exception as exc:
-        logger.warning("post_parse_error", exc_info=exc)
+        logger.warning("post_parse_error", post_id=post_id, url=post_url, exc_info=exc)
         return Post()
 
 
@@ -252,7 +253,7 @@ def _parse_comment(div: Tag, depth: int = 0) -> Comment:
             replies=replies,
         )
     except Exception as exc:
-        logger.warning("comment_parse_error", exc_info=exc)
+        logger.warning("comment_parse_error", depth=depth, exc_info=exc)
         return Comment()
 
 
@@ -268,8 +269,8 @@ def _parse_subreddit_info(soup: BeautifulSoup) -> SubredditInfo:
         contents = sidebar.find("div", id="sidebar_contents") or sidebar
         name_tag = contents.find(class_="subreddit_name") or contents.find("h1")
         title_tag = contents.find(class_="subreddit_title") or contents.find("h2")
-        desc_tag = (
-            contents.find(class_="subreddit_description") or contents.find("div", class_="md")
+        desc_tag = contents.find(class_="subreddit_description") or contents.find(
+            "div", class_="md"
         )
         members_tag = contents.find(class_="subreddit_members")
         active_tag = contents.find(class_="subreddit_active")
@@ -294,13 +295,13 @@ def _parse_listing(html: str) -> tuple[list[Post], str | None, SubredditInfo]:
     return posts, next_token, info
 
 
-def _parse_post_page(html: str) -> tuple[Post | None, list[Comment]]:
+def _parse_post_page(html: str, url: str | None = None) -> tuple[Post | None, list[Comment]]:
     soup = BeautifulSoup(html, "lxml")
 
     post_div = soup.find("div", class_="post")
     post = _parse_post(post_div) if post_div else None
     if post_div is None:
-        logger.warning("post_div_missing")
+        logger.warning("post_div_missing", url=url)
 
     comments: list[Comment] = []
     comments_section = soup.find("div", id="commentarea") or soup.find("div", class_="comments")
@@ -450,7 +451,7 @@ class RedlibClient:
     def get_post(self, path: str) -> dict[str, Any]:
         """Return a single post (no comments). `path` is the Redlib URL path."""
         html = self._get(path)
-        post, _ = _parse_post_page(html)
+        post, _ = _parse_post_page(html, url=self._base_url + path)
         if post is None:
             raise RedlibParseError(f"No post found at {path}")
         return post.model_dump()
@@ -458,7 +459,7 @@ class RedlibClient:
     def get_comments(self, path: str) -> dict[str, Any]:
         """Return post + full comment tree."""
         html = self._get(path)
-        post, comments = _parse_post_page(html)
+        post, comments = _parse_post_page(html, url=self._base_url + path)
         return {
             "post": post.model_dump() if post else None,
             "comments": [c.model_dump() for c in comments],
@@ -524,14 +525,14 @@ class RedlibClient:
 
     async def aget_post(self, path: str) -> dict[str, Any]:
         html = await self._aget(path)
-        post, _ = _parse_post_page(html)
+        post, _ = _parse_post_page(html, url=self._base_url + path)
         if post is None:
             raise RedlibParseError(f"No post found at {path}")
         return post.model_dump()
 
     async def aget_comments(self, path: str) -> dict[str, Any]:
         html = await self._aget(path)
-        post, comments = _parse_post_page(html)
+        post, comments = _parse_post_page(html, url=self._base_url + path)
         return {
             "post": post.model_dump() if post else None,
             "comments": [c.model_dump() for c in comments],

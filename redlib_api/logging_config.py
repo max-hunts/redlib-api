@@ -37,7 +37,7 @@ def configure_logging(
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.make_filtering_bound_logger(int_level),
-        cache_logger_on_first_use=True,
+        cache_logger_on_first_use=False,
     )
 
     # foreign_pre_chain handles stdlib records (e.g. from third-party libs)
@@ -45,6 +45,7 @@ def configure_logging(
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         structlog.processors.TimeStamper(fmt="iso"),
+        structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.ExceptionRenderer(),
     ]
 

@@ -36,6 +36,18 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10",
+    "types-beautifulsoup4>=4.12",
+    "types-passlib>=1.7",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
