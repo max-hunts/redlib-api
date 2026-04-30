@@ -22,6 +22,8 @@ _SECRET_KEY = os.environ.get("PORTAL_SECRET_KEY", "changeme")
 _PASSWORD_HASH = os.environ.get("PORTAL_ADMIN_PASSWORD_HASH", "")
 _COOKIE_NAME = "portal_session"
 _SESSION_MAX_AGE = 8 * 3600  # 8 hours
+_FLASH_COOKIE = "_flash_token"
+_FLASH_MAX_AGE = 60  # seconds — survives one redirect + page load
 
 _signer = URLSafeTimedSerializer(_SECRET_KEY)
 
@@ -60,6 +62,28 @@ def _set_session_cookie(response: Response) -> None:
 
 def _clear_session_cookie(response: Response) -> None:
     response.delete_cookie(_COOKIE_NAME, httponly=True, samesite="lax")
+
+
+def _set_flash_token(response: Response, token: str) -> None:
+    response.set_cookie(
+        _FLASH_COOKIE,
+        _signer.dumps(token),
+        max_age=_FLASH_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+    )
+
+
+def _read_flash_token(request: Request) -> str:
+    """Verify and return the flash token from the request cookie (does not clear it)."""
+    signed = request.cookies.get(_FLASH_COOKIE, "")
+    if not signed:
+        return ""
+    try:
+        return _signer.loads(signed, max_age=_FLASH_MAX_AGE)
+    except (BadSignature, SignatureExpired):
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -143,22 +167,23 @@ async def logout(request: Request) -> Response:
 
 
 @portal_app.get("/", response_class=HTMLResponse, name="key_list")
-async def key_list(request: Request, created_token: str = "") -> HTMLResponse:
+async def key_list(request: Request) -> HTMLResponse:
+    created_token = _read_flash_token(request)
+
     keys = await list_keys()
     since = datetime.now(UTC) - timedelta(days=1)
     summaries: dict[int, UsageSummary] = {}
     for key in keys:
         summaries[key.id] = await get_usage(key.id, since)
 
-    return _templates.TemplateResponse(
+    resp = _templates.TemplateResponse(
         request,
         "index.html",
-        {
-            "keys": keys,
-            "summaries": summaries,
-            "created_token": created_token,
-        },
+        {"keys": keys, "summaries": summaries, "created_token": created_token},
     )
+    if created_token:
+        resp.delete_cookie(_FLASH_COOKIE, httponly=True, samesite="lax")
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -189,8 +214,9 @@ async def create_key_post(
 
     token = await create_key(name, email_val)
     logger.info("portal_key_created", name=name)
-    list_url = str(request.url_for("key_list")) + f"?created_token={token}"
-    return RedirectResponse(url=list_url, status_code=303)
+    resp = RedirectResponse(url=str(request.url_for("key_list")), status_code=303)
+    _set_flash_token(resp, token)
+    return resp
 
 
 # ---------------------------------------------------------------------------

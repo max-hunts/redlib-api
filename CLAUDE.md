@@ -134,8 +134,8 @@ When you complete a task, check the implementation plan below and tick off the r
 - [x] Key detail: usage by day, last 7 days
 
 **Phase 4 — Container**
-- [ ] `Dockerfile`: `python:3.12-slim`, non-root user, port 5001
-- [ ] `docker-compose.yml`: `api` + `redlib` services; SHA-pinned `ghcr.io/silvenga/redlib`; `api` `depends_on: [redlib]`; named volume for `data/`; env var placeholders
+- [x] `Dockerfile`: `python:3.12-slim`, non-root user, port 5001
+- [x] `docker-compose.yml`: `api` + `redlib` services; SHA-pinned `ghcr.io/silvenga/redlib`; `api` `depends_on: [redlib]`; named volume for `data/`; env var placeholders
 
 ## Architecture
 

@@ -29,7 +29,11 @@ class RedlibError(Exception):
 
 
 class RedlibConnectionError(RedlibError):
-    """Local Redlib backend unreachable / 5xx / timeout."""
+    """Local Redlib backend unreachable / 5xx."""
+
+
+class RedlibTimeoutError(RedlibConnectionError):
+    """Request to local Redlib backend timed out."""
 
 
 class RedlibParseError(RedlibError):
@@ -419,7 +423,7 @@ class RedlibClient:
         try:
             resp = self._sync_client.get(url, params=params)
         except httpx.TimeoutException as exc:
-            raise RedlibConnectionError(f"Request timed out: {url}") from exc
+            raise RedlibTimeoutError(f"Request timed out: {url}") from exc
         except httpx.HTTPError as exc:
             raise RedlibConnectionError(f"HTTP error reaching {url}: {exc}") from exc
         if resp.status_code == 429:
@@ -439,7 +443,7 @@ class RedlibClient:
         try:
             resp = await self._async_client.get(url, params=params)
         except httpx.TimeoutException as exc:
-            raise RedlibConnectionError(f"Request timed out: {url}") from exc
+            raise RedlibTimeoutError(f"Request timed out: {url}") from exc
         except httpx.HTTPError as exc:
             raise RedlibConnectionError(f"HTTP error reaching {url}: {exc}") from exc
         if resp.status_code == 429:

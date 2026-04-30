@@ -247,12 +247,18 @@ async def get_usage(key_id: int, since: datetime) -> UsageSummary:
 async def require_api_key(request: Request) -> AuthContext:
     """FastAPI dependency: validate bearer token and enforce rate limits."""
     auth_header = request.headers.get("Authorization", "")
+    _rl_stub = {
+        "X-RateLimit-Limit": str(_MINUTE_LIMIT),
+        "X-RateLimit-Remaining": str(_MINUTE_LIMIT),
+        "X-RateLimit-Reset": str(int(_utcnow().timestamp()) + 60),
+    }
+
     if not auth_header.startswith("Bearer "):
-        raise AuthError(401, "Unauthorized", "Missing or malformed Authorization header")
+        raise AuthError(401, "Unauthorized", "Missing or malformed Authorization header", headers=_rl_stub)
 
     token = auth_header[len("Bearer ") :].strip()
     if not token:
-        raise AuthError(401, "Unauthorized", "Bearer token is empty")
+        raise AuthError(401, "Unauthorized", "Bearer token is empty", headers=_rl_stub)
 
     key_hash = _hash_token(token)
     now = _utcnow()
@@ -268,7 +274,7 @@ async def require_api_key(request: Request) -> AuthContext:
 
     if row is None or not row["is_active"]:
         logger.warning("auth_failed", path=str(request.url.path))
-        raise AuthError(401, "Unauthorized", "Invalid or revoked API key")
+        raise AuthError(401, "Unauthorized", "Invalid or revoked API key", headers=_rl_stub)
 
     key_id: int = row["id"]
     name: str = row["name"]

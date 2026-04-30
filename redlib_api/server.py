@@ -38,6 +38,7 @@ from redlib_api.client import (
     RedlibConnectionError,
     RedlibParseError,
     RedlibRateLimitError,
+    RedlibTimeoutError,
 )
 from redlib_api.logging_config import configure_logging
 from redlib_api.sanitize import clean_html
@@ -233,6 +234,14 @@ async def _value_error_handler(request: Request, exc: ValueError) -> JSONRespons
     return problem(400, "Bad Request", str(exc))
 
 
+@app.exception_handler(RedlibTimeoutError)
+async def _timeout_error_handler(
+    request: Request, exc: RedlibTimeoutError
+) -> JSONResponse:
+    logger.warning("redlib_timeout", detail=str(exc))
+    return problem(504, "Gateway Timeout", "Local Redlib backend did not respond in time")
+
+
 @app.exception_handler(RedlibConnectionError)
 async def _connection_error_handler(
     request: Request, exc: RedlibConnectionError
@@ -310,7 +319,7 @@ async def get_comments(
 async def get_subreddit(
     subreddit: str,
     sort: str = "hot",
-    limit: int = 25,
+    limit: int = Query(default=25, ge=1, le=100),
     after: str | None = None,
     time_filter: str | None = None,
     _auth: AuthContext = Depends(require_api_key),
