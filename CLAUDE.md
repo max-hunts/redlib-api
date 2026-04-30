@@ -28,7 +28,9 @@ redlib_api/
   client.py            # Core client class + Pydantic models + HTML parsers
   logging_config.py    # configure_logging() — structlog → rotating JSON file + optional console
   server.py            # FastAPI wrapper around RedlibClient
-  auth.py              # API key DB (SQLite), validation, rate limiting middleware
+  auth.py              # API key DB (SQLite), rate limiting, UsageLogMiddleware, key helpers
+  validators.py        # Pure input validation (subreddit, username, sort, etc.) — no I/O
+  sanitize.py          # clean_html() via nh3 — strips unsafe tags from body_html fields
   portal.py            # Minimal admin portal (FastAPI + Jinja2) for key management
 templates/
   portal/
@@ -107,19 +109,22 @@ When you complete a task, check the implementation plan below and tick off the r
 - [x] Pydantic models (`Post`, `Comment`, `SubredditInfo`, `SearchResult`, `UserProfile`)
 - [x] Exception hierarchy (`RedlibError` → `RedlibConnectionError` / `RedlibParseError` / `RedlibRateLimitError`)
 - [x] Defensive parsing: missing selectors log warning + return `None`, never raise
+- [x] **[tooling]** Set up `uv audit` as a pre-commit hook: add `pre-commit` to `[project.optional-dependencies] dev`; create `.pre-commit-config.yaml` with a local hook that runs `uv audit --frozen` (reads `uv.lock` natively, audits all 76 packages including dev deps); run `uv pip install -e ".[dev]" && pre-commit install`
 
 **Phase 1 — Auth core (`auth.py`)**
-- [ ] DB init: create tables, enable WAL + `synchronous=NORMAL`
-- [ ] `create_key`, `revoke_key`, `list_keys`, `get_usage` helpers
-- [ ] FastAPI dependency: extract bearer → SHA-256 lookup → rate limit checks → 401/429
-- [ ] `usage_log` insert after response + `last_used` update
-- [ ] `X-RateLimit-*` headers on all responses
-- [ ] 30-day pruning task (run on startup)
+- [x] **[security]** Validate `subreddit`, `username`, `sort`, and `time_filter` inputs in `server.py` before passing to `RedlibClient` — reject values containing `/`, `?`, `#`, or any character outside `[A-Za-z0-9_\-]`; allowlist `sort` against `{"hot","new","top","rising","controversial"}` and `time_filter` against `{"hour","day","week","month","year","all"}`
+- [x] **[security]** Sanitise `Post.body_html` and `Comment.body_html` before returning from API endpoints — add `nh3` to dependencies and run `nh3.clean(html)` on both fields in `server.py` response serialisation (or in the parser); document that `body_html` is sanitised HTML, not raw Reddit markup
+- [x] DB init: create tables, enable WAL + `synchronous=NORMAL`
+- [x] `create_key`, `revoke_key`, `list_keys`, `get_usage` helpers
+- [x] FastAPI dependency: extract bearer → SHA-256 lookup → rate limit checks → 401/429
+- [x] `usage_log` insert after response + `last_used` update
+- [x] `X-RateLimit-*` headers on all responses
+- [x] 30-day pruning task (run on startup)
 
 **Phase 2 — Server integration (`server.py`)**
-- [ ] Wire auth dependency onto all routes except `/health`
-- [ ] `/health` probes the local Redlib backend → `{"status": "ok" | "degraded", "redlib": {"base_url": ..., "ok": bool}}`
-- [ ] Confirm `X-Response-Time` + `X-RateLimit-*` coexist cleanly
+- [x] Wire auth dependency onto all routes except `/health`
+- [x] `/health` probes the local Redlib backend → `{"status": "ok" | "degraded", "redlib": {"base_url": ..., "ok": bool}}`
+- [x] Confirm `X-Response-Time` + `X-RateLimit-*` coexist cleanly
 
 **Phase 3 — Admin portal (`portal.py` + templates)**
 - [ ] bcrypt login form + session cookie
@@ -283,12 +288,9 @@ CREATE INDEX idx_usage_key_ts ON usage_log(key_id, ts);
 
 **Usage log retention:** rows older than 30 days serve no purpose (rate limit windows are at most 24 h). A cleanup routine should purge them — either a background task on startup or a periodic call. Without this, `COUNT` queries for rate limiting degrade linearly with table size.
 
-**SQLite concurrency:** FastAPI runs an async event loop; blocking SQLite calls inside `async def` handlers will stall it under concurrent load. Use `aiosqlite` for all DB access so queries run without blocking the loop. Additionally, enable WAL (Write-Ahead Logging) mode on every new connection:
+**SQLite concurrency:** FastAPI runs an async event loop; blocking SQLite calls inside `async def` handlers will stall it under concurrent load. Use `aiosqlite` for all DB access so queries run without blocking the loop.
 
-```python
-await db.execute("PRAGMA journal_mode=WAL")
-await db.execute("PRAGMA synchronous=NORMAL")
-```
+A **single persistent `aiosqlite.Connection`** is opened by `init_db()` at startup and closed by `close_db()` in the lifespan shutdown hook. WAL and `synchronous=NORMAL` are set once at `init_db` time — not per-call. `get_db()` is a plain sync function that returns this shared connection; all callers use it directly. aiosqlite's internal background thread and queue serialise every operation, so no Python-level lock is needed.
 
 WAL allows concurrent readers alongside a single writer, which fits the read-heavy access pattern here (many rate-limit checks, occasional inserts). Without it, any write locks out all reads, causing request queuing.
 
@@ -297,16 +299,37 @@ WAL allows concurrent readers alongside a single writer, which fits the read-hea
 - 60 requests / minute
 - 1 000 requests / day
 
-**Enforcement flow (FastAPI dependency):**
+**DB lifecycle:**
 
-1. Extract `Authorization: Bearer <token>` header — 401 if missing.
-2. Hash token with SHA-256, look up in `api_keys` — 401 if not found or `is_active = 0`.
-3. Count rows in `usage_log` for this key in the last 60 seconds — 429 if ≥ 60.
-4. Count rows in `usage_log` for this key since UTC midnight — 429 if ≥ 1 000.
-5. Insert a row into `usage_log` after the response (endpoint + status code).
-6. Update `last_used` on the key row.
+```python
+await init_db(database_url)   # call once in lifespan startup — opens connection, sets pragmas, creates schema
+await close_db()              # call once in lifespan shutdown
+get_db() -> Connection        # sync FastAPI dependency; returns the shared connection
+```
 
-429 responses must include `Retry-After` and `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Reset` headers. Successful responses must also carry `X-RateLimit-*` so clients can self-throttle.
+**Enforcement — `require_api_key` dependency:**
+
+1. Extract `Authorization: Bearer <token>` header — raise `AuthError(401)` if missing.
+2. SHA-256 the token, look up in `api_keys` — `AuthError(401)` if not found or `is_active = 0`.
+3. Count `usage_log` rows for this key in the last 60 s — `AuthError(429)` if ≥ 60.
+4. Count `usage_log` rows for this key since UTC midnight — `AuthError(429)` if ≥ 1 000.
+5. Store `AuthContext(key_id, name, minute_count, day_count)` in `request.state.auth_context` **before** any 429 raise, so the middleware can log rate-limited attempts.
+6. Return `AuthContext` to the route handler.
+
+**Post-response — `UsageLogMiddleware`:**
+
+Reads `request.state.auth_context`; if present:
+- Inserts one row into `usage_log` (key_id, ts, endpoint, status_code).
+- Updates `last_used` on the key row.
+- Sets `X-RateLimit-Limit / Remaining / Reset` headers on the response (minute window — the tighter client-visible bound).
+
+The middleware catches its own DB exceptions and logs a WARNING rather than letting them surface to the caller.
+
+**`AuthError` and `problem()`:**
+
+`AuthError(status, title, detail, headers)` is raised by the dependency; `server.py` registers an exception handler that calls `problem()` to produce an `application/problem+json` response. `problem(status, title, detail, **extras)` is a standalone helper that returns a `JSONResponse` with `media_type="application/problem+json"`.
+
+429 responses carry `Retry-After` + the full `X-RateLimit-*` triple in `AuthError.headers`; the exception handler forwards them onto the response.
 
 **Key management helpers (used by portal):**
 
@@ -315,7 +338,40 @@ create_key(name, email) -> str          # generates UUID v4, stores hash, return
 revoke_key(key_id)
 list_keys() -> list[KeyInfo]
 get_usage(key_id, since) -> UsageSummary
+prune_usage_log(older_than_days=30) -> int  # call at startup; deletes stale rows
 ```
+
+### Input Validation (`validators.py`)
+
+Pure functions — no I/O, no FastAPI imports. Phase 2 route handlers call these before passing values to `RedlibClient`; on failure they raise `ValueError` with a short caller-safe message. Phase 2 catches and translates to `400 application/problem+json`.
+
+```python
+SUBREDDIT_RE   = r"^[A-Za-z0-9_\-]{1,50}$"
+USERNAME_RE    = r"^[A-Za-z0-9_\-]{1,50}$"
+POST_ID_RE     = r"^[A-Za-z0-9]{1,16}$"
+SLUG_RE        = r"^[A-Za-z0-9_\-]{0,128}$"
+AFTER_TOKEN_RE = r"^[A-Za-z0-9_\-]{0,64}$"
+
+SORTS        = {"hot", "new", "top", "rising", "controversial"}
+TIME_FILTERS = {"hour", "day", "week", "month", "year", "all"}
+
+validate_subreddit(value) -> str
+validate_username(value) -> str
+validate_post_id(value) -> str
+validate_slug(value) -> str
+validate_sort(value) -> str
+validate_time_filter(value) -> str
+validate_after(value | None) -> str | None
+validate_query(q, max_len=256) -> str
+```
+
+### HTML Sanitisation (`sanitize.py`)
+
+```python
+clean_html(html: str | None) -> str | None
+```
+
+Runs `nh3.clean()` with a tight allowlist (`p`, `br`, `strong`, `em`, `ul`, `ol`, `li`, `blockquote`, `code`, `pre`, `a`, `h1`–`h6`; only `href`/`title` on `<a>`). Phase 2 calls this on `Post.body_html` and `Comment.body_html` before serialisation. The returned value is safe HTML — consumers must not sanitise it again.
 
 ### Admin Portal (`portal.py`)
 
@@ -347,3 +403,5 @@ The portal is a functional skeleton. It will grow into a self-serve signup and b
 - **Rate limit headers always present.** Include `X-RateLimit-*` on all responses (success and error) so clients can self-throttle.
 - **HTTPS at the proxy.** The app speaks plain HTTP; TLS is the reverse proxy's responsibility. Never expose port 5001 directly.
 - **Prune `usage_log` regularly.** Rows older than 30 days must be deleted to keep rate-limit queries fast.
+- **Validate all route inputs.** Every subreddit name, username, post ID, slug, sort, time_filter, after token, and search query must pass through `validators.py` before reaching `RedlibClient`. Raise `ValueError`; Phase 2 translates to `400 application/problem+json`.
+- **Sanitise all HTML output.** `Post.body_html` and `Comment.body_html` must pass through `sanitize.clean_html()` before being returned by any API endpoint. Raw Redlib HTML is never returned directly.

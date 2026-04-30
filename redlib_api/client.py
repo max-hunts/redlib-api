@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 import structlog
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 from pydantic import BaseModel, Field
 
 logger = structlog.get_logger()
@@ -129,14 +129,14 @@ class _RateLimiter:
 # ---------------------------------------------------------------------------
 
 
-def _text(tag: Tag | None) -> str | None:
-    if tag is None:
+def _text(tag: Tag | NavigableString | None) -> str | None:
+    if not isinstance(tag, Tag):
         return None
     return tag.get_text(strip=True) or None
 
 
-def _attr(tag: Tag | None, attr: str) -> str | None:
-    if tag is None:
+def _attr(tag: Tag | NavigableString | None, attr: str) -> str | None:
+    if not isinstance(tag, Tag):
         return None
     val = tag.get(attr)
     if isinstance(val, list):
@@ -144,8 +144,8 @@ def _attr(tag: Tag | None, attr: str) -> str | None:
     return val or None
 
 
-def _parse_datetime(tag: Tag | None) -> datetime | None:
-    if tag is None:
+def _parse_datetime(tag: Tag | NavigableString | None) -> datetime | None:
+    if not isinstance(tag, Tag):
         return None
     ts = _attr(tag, "datetime") or _attr(tag, "title")
     if not ts:
@@ -238,7 +238,7 @@ def _parse_comment(div: Tag, depth: int = 0) -> Comment:
 
         replies: list[Comment] = []
         replies_container = div.find("div", class_="replies")
-        if replies_container:
+        if isinstance(replies_container, Tag):
             for child in replies_container.find_all("div", class_="comment", recursive=False):
                 replies.append(_parse_comment(child, depth + 1))
 
@@ -261,12 +261,13 @@ def _parse_subreddit_info(soup: BeautifulSoup) -> SubredditInfo:
     """Parse sidebar into SubredditInfo (defensive — never raises)."""
     try:
         # silvenga fork renders <details id="sidebar">, not <div>
-        sidebar = soup.find(id="sidebar")
-        if sidebar is None:
+        sidebar_raw = soup.find(id="sidebar")
+        if not isinstance(sidebar_raw, Tag):
             logger.debug("sidebar_not_found")
             return SubredditInfo()
 
-        contents = sidebar.find("div", id="sidebar_contents") or sidebar
+        contents_raw = sidebar_raw.find("div", id="sidebar_contents")
+        contents: Tag = contents_raw if isinstance(contents_raw, Tag) else sidebar_raw
         name_tag = contents.find(class_="subreddit_name") or contents.find("h1")
         title_tag = contents.find(class_="subreddit_title") or contents.find("h2")
         desc_tag = contents.find(class_="subreddit_description") or contents.find(
@@ -299,13 +300,15 @@ def _parse_post_page(html: str, url: str | None = None) -> tuple[Post | None, li
     soup = BeautifulSoup(html, "lxml")
 
     post_div = soup.find("div", class_="post")
-    post = _parse_post(post_div) if post_div else None
-    if post_div is None:
+    post: Post | None = None
+    if isinstance(post_div, Tag):
+        post = _parse_post(post_div)
+    elif post_div is None:
         logger.warning("post_div_missing", url=url)
 
     comments: list[Comment] = []
     comments_section = soup.find("div", id="commentarea") or soup.find("div", class_="comments")
-    if comments_section:
+    if isinstance(comments_section, Tag):
         for div in comments_section.find_all("div", class_="comment", recursive=False):
             comments.append(_parse_comment(div))
 
@@ -322,10 +325,11 @@ def _parse_search(html: str) -> SearchResult:
 def _parse_user(html: str) -> UserProfile:
     soup = BeautifulSoup(html, "lxml")
 
-    header = soup.find("div", class_="user_info") or soup.find("div", id="userinfo")
-    username_tag = header.find(class_="user_name") if header else None
-    karma_tag = header.find(class_="user_karma") if header else None
-    time_tag = header.find("span", class_="user_created") if header else None
+    header_raw = soup.find("div", class_="user_info") or soup.find("div", id="userinfo")
+    header: Tag | None = header_raw if isinstance(header_raw, Tag) else None
+    username_tag = header.find(class_="user_name") if header is not None else None
+    karma_tag = header.find(class_="user_karma") if header is not None else None
+    time_tag = header.find("span", class_="user_created") if header is not None else None
 
     posts: list[Post] = []
     comments: list[Comment] = []
