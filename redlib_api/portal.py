@@ -6,11 +6,11 @@ import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
+import bcrypt as _bcrypt
 import structlog
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-import bcrypt as _bcrypt
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -124,9 +124,7 @@ portal_app.add_middleware(_RequireLoginMiddleware)
 
 @portal_app.get("/login", response_class=HTMLResponse, name="login_page")
 async def login_get(request: Request, error: str = "") -> HTMLResponse:
-    return _templates.TemplateResponse(
-        request, "login.html", {"error": error}
-    )
+    return _templates.TemplateResponse(request, "login.html", {"error": error})
 
 
 @portal_app.post("/login")
@@ -208,7 +206,12 @@ async def create_key_post(
         return _templates.TemplateResponse(
             request,
             "index.html",
-            {"keys": keys, "summaries": summaries, "created_token": "", "error": "Name is required"},
+            {
+                "keys": keys,
+                "summaries": summaries,
+                "created_token": "",
+                "error": "Name is required",
+            },
             status_code=422,
         )
 
@@ -241,9 +244,7 @@ async def key_detail(request: Request, key_id: int) -> HTMLResponse:
     keys = await list_keys()
     key: KeyInfo | None = next((k for k in keys if k.id == key_id), None)
     if key is None:
-        return _templates.TemplateResponse(
-            request, "not_found.html", {}, status_code=404
-        )
+        return _templates.TemplateResponse(request, "not_found.html", {}, status_code=404)
 
     since = datetime.now(UTC) - timedelta(days=7)
     usage = await get_usage(key_id, since)

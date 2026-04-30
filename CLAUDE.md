@@ -78,7 +78,7 @@ PORTAL_ADMIN_PASSWORD_HASH=<bcrypt hash>    # generate with: python -c "from pas
 
 When the API runs inside `docker compose`, set `REDLIB_BASE_URL=http://redlib:8080` (service-to-service hostname). When the API runs on the host (e.g. `uvicorn --reload`), use `http://localhost:8089` to reach the published port.
 
-Use `uv` for all package resolution and installation — not `pip` directly. **Python 3.12 is the pinned target version** (matches the Docker base); do not use syntax or stdlib features newer than 3.12. No test suite exists yet. When adding tests, use `pytest`.
+Use `uv` for all package resolution and installation — not `pip` directly. **Python 3.12 is the pinned target version** (matches the Docker base); do not use syntax or stdlib features newer than 3.12. Tests live in `tests/` and run with `uv run pytest` — 126 tests covering `auth`, `sanitize`, `server`, and `validators`.
 
 **Secrets / config loading.** Local development reads from a `.env` file at the project root via `python-dotenv` (loaded once at server startup before any other imports that might need env vars). In Docker, the same variables are injected by `docker-compose.yml` and `.env` is not used. The `.env` file is gitignored; a committed `.env.example` documents every required variable with safe placeholder values.
 

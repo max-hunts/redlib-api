@@ -41,8 +41,9 @@ select = ["E", "F", "I", "UP"]
 dev = [
     "mypy>=1.10",
     "types-beautifulsoup4>=4.12",
-
     "pre-commit>=3.7",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
 ]
 
 [tool.mypy]

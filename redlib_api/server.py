@@ -32,7 +32,6 @@ from redlib_api.auth import (
     prune_usage_log,
     require_api_key,
 )
-from redlib_api.portal import portal_app
 from redlib_api.client import (
     RedlibClient,
     RedlibConnectionError,
@@ -41,6 +40,7 @@ from redlib_api.client import (
     RedlibTimeoutError,
 )
 from redlib_api.logging_config import configure_logging
+from redlib_api.portal import portal_app
 from redlib_api.sanitize import clean_html
 from redlib_api.validators import (
     validate_after,
@@ -235,17 +235,13 @@ async def _value_error_handler(request: Request, exc: ValueError) -> JSONRespons
 
 
 @app.exception_handler(RedlibTimeoutError)
-async def _timeout_error_handler(
-    request: Request, exc: RedlibTimeoutError
-) -> JSONResponse:
+async def _timeout_error_handler(request: Request, exc: RedlibTimeoutError) -> JSONResponse:
     logger.warning("redlib_timeout", detail=str(exc))
     return problem(504, "Gateway Timeout", "Local Redlib backend did not respond in time")
 
 
 @app.exception_handler(RedlibConnectionError)
-async def _connection_error_handler(
-    request: Request, exc: RedlibConnectionError
-) -> JSONResponse:
+async def _connection_error_handler(request: Request, exc: RedlibConnectionError) -> JSONResponse:
     logger.warning("redlib_connection_error", detail=str(exc))
     return problem(503, "Service Unavailable", "Local Redlib backend is unreachable")
 
@@ -257,9 +253,7 @@ async def _parse_error_handler(request: Request, exc: RedlibParseError) -> JSONR
 
 
 @app.exception_handler(RedlibRateLimitError)
-async def _backend_rate_limit_handler(
-    request: Request, exc: RedlibRateLimitError
-) -> JSONResponse:
+async def _backend_rate_limit_handler(request: Request, exc: RedlibRateLimitError) -> JSONResponse:
     logger.warning("redlib_backend_rate_limit", detail=str(exc))
     return problem(502, "Bad Gateway", "Redlib backend is rate limiting requests")
 
