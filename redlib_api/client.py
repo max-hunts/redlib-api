@@ -9,7 +9,7 @@ import os
 import re
 import time
 import urllib.parse
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -153,6 +153,12 @@ def _parse_datetime(tag: Tag | NavigableString | None) -> datetime | None:
     try:
         return datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
+        pass
+    # Redlib title attr format: "Apr 30 2026, 19:10:17 UTC"
+    try:
+        return datetime.strptime(ts, "%b %d %Y, %H:%M:%S UTC").replace(tzinfo=UTC)
+    except (ValueError, AttributeError):
+        logger.debug("datetime_parse_failed", raw=ts)
         return None
 
 
@@ -169,28 +175,28 @@ def _after_token(soup: BeautifulSoup) -> str | None:
 
 def _parse_post(div: Tag) -> Post:
     """Parse a single `div.post` into a Post model (defensive — never raises)."""
-    post_id: str | None = None
-    post_url: str | None = None
     try:
+        post_id = _attr(div, "id")
         nsfw = "nsfw" in (div.get("class") or [])
 
-        title_tag = div.find("a", class_="post_title")
+        # Title link is the non-flair <a> inside <h2 class="post_title">
+        title_tag: Tag | None = None
+        post_url: str | None = None
+        h2 = div.find("h2", class_="post_title")
+        if isinstance(h2, Tag):
+            for a in h2.find_all("a"):
+                if "post_flair" not in (a.get("class") or []):
+                    title_tag = a
+                    post_url = _attr(a, "href")
+                    break
+
         score_tag = div.find(class_="post_score")
         author_tag = div.find("a", class_="post_author")
         sub_tag = div.find("a", class_="post_subreddit")
         comments_tag = div.find("a", class_="post_comments")
-        time_tag = div.find("span", class_="post_time")
-        flair_tag = div.find("span", class_="post_flair")
+        time_tag = div.find("span", class_="created")
+        flair_tag = div.find("a", class_="post_flair")
         thumb_tag = div.find("img", class_="post_thumbnail")
-
-        post_url = _attr(title_tag, "href")
-        if post_url:
-            m = re.search(r"/comments/([^/]+)/", post_url)
-            if m:
-                post_id = m.group(1)
-
-        ext_tag = div.find("a", class_="post_link")
-        external_url = _attr(ext_tag, "href")
 
         body_div = div.find("div", class_="post_body")
         body_html = str(body_div) if body_div else None
@@ -207,9 +213,9 @@ def _parse_post(div: Tag) -> Post:
             title=_text(title_tag),
             author=_text(author_tag),
             subreddit=_text(sub_tag),
-            score=_text(score_tag),
+            score=_attr(score_tag, "title"),
             url=post_url,
-            external_url=external_url,
+            external_url=None,
             body_html=body_html,
             body_text=body_text,
             comment_count=_text(comments_tag),
@@ -220,7 +226,7 @@ def _parse_post(div: Tag) -> Post:
             media_urls=media_urls,
         )
     except Exception as exc:
-        logger.warning("post_parse_error", post_id=post_id, url=post_url, exc_info=exc)
+        logger.warning("post_parse_error", post_id=_attr(div, "id"), exc_info=exc)
         return Post()
 
 
@@ -229,15 +235,18 @@ def _parse_comment(div: Tag, depth: int = 0) -> Comment:
     try:
         comment_id = _attr(div, "id")
         author_tag = div.find("a", class_="comment_author")
-        score_tag = div.find(class_="comment_score")
-        time_tag = div.find("span", class_="comment_time")
-        body_div = div.find("div", class_="comment_body")
+        score_tag = div.find("p", class_="comment_score")
+        # post pages use <a class="created">, user pages use <span class="created">
+        time_tag = div.find("a", class_="created") or div.find("span", class_="created")
+        # post pages wrap in div.comment_body; user pages use div.md directly
+        body_div = div.find("div", class_="comment_body") or div.find("div", class_="md")
 
         body_html = str(body_div) if body_div else None
         body_text = _text(body_div) if body_div else None
 
         replies: list[Comment] = []
-        replies_container = div.find("div", class_="replies")
+        # replies live in <blockquote class="replies">, not a div
+        replies_container = div.find("blockquote", class_="replies")
         if isinstance(replies_container, Tag):
             for child in replies_container.find_all("div", class_="comment", recursive=False):
                 replies.append(_parse_comment(child, depth + 1))
@@ -245,7 +254,7 @@ def _parse_comment(div: Tag, depth: int = 0) -> Comment:
         return Comment(
             id=comment_id,
             author=_text(author_tag),
-            score=_text(score_tag),
+            score=_attr(score_tag, "title"),
             body_html=body_html,
             body_text=body_text,
             created=_parse_datetime(time_tag),
@@ -325,11 +334,26 @@ def _parse_search(html: str) -> SearchResult:
 def _parse_user(html: str) -> UserProfile:
     soup = BeautifulSoup(html, "lxml")
 
-    header_raw = soup.find("div", class_="user_info") or soup.find("div", id="userinfo")
-    header: Tag | None = header_raw if isinstance(header_raw, Tag) else None
-    username_tag = header.find(class_="user_name") if header is not None else None
-    karma_tag = header.find(class_="user_karma") if header is not None else None
-    time_tag = header.find("span", class_="user_created") if header is not None else None
+    username: str | None = None
+    karma: str | None = None
+    user_created: datetime | None = None
+
+    title_tag = soup.select_one("#user_title")
+    username = _text(title_tag)
+
+    # #user_details layout: two <label> headers then two <div> values (karma, created)
+    details = soup.select_one("#user_details")
+    if isinstance(details, Tag):
+        detail_divs = details.find_all("div", recursive=False)
+        if detail_divs:
+            karma = _text(detail_divs[0])
+        if len(detail_divs) >= 2:
+            raw = _text(detail_divs[1])
+            if raw:
+                try:
+                    user_created = datetime.strptime(raw, "%b %d '%y").replace(tzinfo=UTC)
+                except ValueError:
+                    logger.debug("user_created_parse_failed", raw=raw)
 
     posts: list[Post] = []
     comments: list[Comment] = []
@@ -340,9 +364,9 @@ def _parse_user(html: str) -> UserProfile:
         comments.append(_parse_comment(div))
 
     return UserProfile(
-        username=_text(username_tag),
-        karma=_text(karma_tag),
-        created=_parse_datetime(time_tag),
+        username=username,
+        karma=karma,
+        created=user_created,
         posts=posts,
         comments=comments,
     )

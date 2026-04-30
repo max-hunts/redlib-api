@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}API Keys — redlib-api admin{% endblock %}
+{% block content %}
+<h1>API Keys</h1>
+
+{% if created_token %}
+<div class="alert alert-success">
+  Key created. Copy this token now — it will not be shown again:<br><br>
+  <div class="token-box">{{ created_token }}</div>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="margin-bottom:24px">
+  <h2>Create new key</h2>
+  <form method="post" action="{{ request.url_for('create_key_post') }}">
+    <div class="form-row">
+      <div class="form-group">
+        <label for="name">Name <span style="color:#f85149">*</span></label>
+        <input type="text" id="name" name="name" placeholder="e.g. acme corp" required style="width:220px">
+      </div>
+      <div class="form-group">
+        <label for="email">Email (optional)</label>
+        <input type="email" id="email" name="email" placeholder="owner@example.com" style="width:220px">
+      </div>
+      <div class="form-group">
+        <label>&nbsp;</label>
+        <button type="submit" class="btn btn-primary">Create</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  {% if keys %}
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Status</th>
+        <th>Req (24h)</th>
+        <th>Last used</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for key in keys %}
+      <tr>
+        <td class="text-muted text-sm">{{ key.id }}</td>
+        <td><a href="{{ request.url_for('key_detail', key_id=key.id) }}">{{ key.name }}</a></td>
+        <td class="text-muted text-sm">{{ key.email or '—' }}</td>
+        <td>
+          {% if key.is_active %}
+          <span class="badge badge-active">active</span>
+          {% else %}
+          <span class="badge badge-revoked">revoked</span>
+          {% endif %}
+        </td>
+        <td>{{ summaries[key.id].requests_total }}</td>
+        <td class="text-muted text-sm">{{ key.last_used[:10] if key.last_used else '—' }}</td>
+        <td class="text-muted text-sm">{{ key.created_at[:10] }}</td>
+        <td>
+          {% if key.is_active %}
+          <form method="post" action="{{ request.url_for('revoke_key_post', key_id=key.id) }}" onsubmit="return confirm('Revoke key for {{ key.name }}?')">
+            <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-muted text-sm">No keys yet. Create one above.</p>
+  {% endif %}
+</div>
+{% endblock %}

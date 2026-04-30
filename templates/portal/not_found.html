@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Not found — redlib-api admin{% endblock %}
+{% block content %}
+<h1>Not found</h1>
+<p class="text-muted">That key doesn't exist. <a href="{{ request.url_for('key_list') }}">Back to keys.</a></p>
+{% endblock %}

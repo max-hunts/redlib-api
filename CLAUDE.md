@@ -127,11 +127,11 @@ When you complete a task, check the implementation plan below and tick off the r
 - [x] Confirm `X-Response-Time` + `X-RateLimit-*` coexist cleanly
 
 **Phase 3 — Admin portal (`portal.py` + templates)**
-- [ ] bcrypt login form + session cookie
-- [ ] Key list with per-key daily usage summary
-- [ ] Create key (display UUID once)
-- [ ] Revoke key
-- [ ] Key detail: usage by day, last 7 days
+- [x] bcrypt login form + session cookie
+- [x] Key list with per-key daily usage summary
+- [x] Create key (display UUID once)
+- [x] Revoke key
+- [x] Key detail: usage by day, last 7 days
 
 **Phase 4 — Container**
 - [ ] `Dockerfile`: `python:3.12-slim`, non-root user, port 5001

@@ -10,8 +10,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
-import structlog
 from dotenv import load_dotenv
+
+load_dotenv()
+
+import structlog
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +32,7 @@ from redlib_api.auth import (
     prune_usage_log,
     require_api_key,
 )
+from redlib_api.portal import portal_app
 from redlib_api.client import (
     RedlibClient,
     RedlibConnectionError,
@@ -47,8 +51,6 @@ from redlib_api.validators import (
     validate_time_filter,
     validate_username,
 )
-
-load_dotenv()
 
 logger = structlog.get_logger(__name__)
 _DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./data/redlib.db")
@@ -379,6 +381,9 @@ async def get_user(
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+
+app.mount("/portal", portal_app)
 
 
 def main() -> None:

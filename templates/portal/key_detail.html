@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Key {{ key.id }} — redlib-api admin{% endblock %}
+{% block content %}
+<div style="margin-bottom:16px">
+  <a href="{{ request.url_for('key_list') }}" class="text-muted text-sm">← back to keys</a>
+</div>
+
+<h1>{{ key.name }}</h1>
+
+<div class="card" style="margin-bottom:16px">
+  <table>
+    <tbody>
+      <tr>
+        <td style="width:140px;color:#8b949e;font-size:12px">ID</td>
+        <td>{{ key.id }}</td>
+      </tr>
+      <tr>
+        <td style="color:#8b949e;font-size:12px">Email</td>
+        <td>{{ key.email or '—' }}</td>
+      </tr>
+      <tr>
+        <td style="color:#8b949e;font-size:12px">Status</td>
+        <td>
+          {% if key.is_active %}
+          <span class="badge badge-active">active</span>
+          {% else %}
+          <span class="badge badge-revoked">revoked</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td style="color:#8b949e;font-size:12px">Created</td>
+        <td class="text-sm">{{ key.created_at[:19].replace('T', ' ') }} UTC</td>
+      </tr>
+      <tr>
+        <td style="color:#8b949e;font-size:12px">Last used</td>
+        <td class="text-sm">{{ key.last_used[:19].replace('T', ' ') ~ ' UTC' if key.last_used else '—' }}</td>
+      </tr>
+      <tr>
+        <td style="color:#8b949e;font-size:12px">Total (7d)</td>
+        <td>{{ usage.requests_total }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% if key.is_active %}
+  <div style="margin-top:16px">
+    <form method="post" action="{{ request.url_for('revoke_key_post', key_id=key.id) }}" onsubmit="return confirm('Revoke key for {{ key.name }}?')">
+      <button type="submit" class="btn btn-danger btn-sm">Revoke key</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Requests — last 7 days</h2>
+  {% set max_count = chart_data | map(attribute='count') | max %}
+  {% if max_count > 0 %}
+  <div class="bar-chart">
+    {% for point in chart_data %}
+    <div class="bar-wrap">
+      <div class="bar" style="height: {{ [(point.count / max_count * 72) | int, 2] | max }}px" title="{{ point.count }} req"></div>
+      <div class="bar-label">{{ point.day[5:] }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="text-sm text-muted" style="margin-top:8px">
+    {% for point in chart_data %}
+    {{ point.day }}: {{ point.count }}{% if not loop.last %} · {% endif %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="text-muted text-sm">No requests in the last 7 days.</p>
+  {% endif %}
+</div>
+{% endblock %}

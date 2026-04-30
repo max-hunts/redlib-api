@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}redlib-api admin{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace; font-size: 14px; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+    a { color: #58a6ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .nav { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; border-bottom: 1px solid #21262d; background: #161b22; }
+    .nav-brand { font-weight: 700; color: #e6edf3; letter-spacing: -0.5px; }
+    .nav-actions form { display: inline; }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 32px 24px; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 24px; color: #e6edf3; }
+    h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #e6edf3; }
+
+    .card { background: #161b22; border: 1px solid #21262d; border-radius: 6px; padding: 20px; margin-bottom: 16px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 8px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #8b949e; border-bottom: 1px solid #21262d; }
+    td { padding: 10px 12px; border-bottom: 1px solid #21262d; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1c2128; }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+    .badge-active { background: #1f4d29; color: #56d364; border: 1px solid #2ea043; }
+    .badge-revoked { background: #3d1f1f; color: #f85149; border: 1px solid #da3633; }
+
+    .btn { display: inline-block; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-family: inherit; cursor: pointer; border: 1px solid; font-weight: 500; }
+    .btn-primary { background: #238636; color: #fff; border-color: #2ea043; }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-danger { background: transparent; color: #f85149; border-color: #da3633; }
+    .btn-danger:hover { background: #3d1f1f; }
+    .btn-sm { padding: 3px 10px; font-size: 12px; }
+
+    .form-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label { font-size: 12px; color: #8b949e; }
+    input[type="text"], input[type="email"], input[type="password"] {
+      background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3;
+      padding: 6px 10px; font-size: 13px; font-family: inherit; outline: none;
+    }
+    input:focus { border-color: #58a6ff; }
+
+    .alert { padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
+    .alert-error { background: #3d1f1f; color: #f85149; border: 1px solid #da3633; }
+    .alert-success { background: #1f4d29; color: #56d364; border: 1px solid #2ea043; }
+
+    .token-box { font-family: ui-monospace, monospace; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px 14px; word-break: break-all; font-size: 13px; color: #79c0ff; }
+
+    .text-muted { color: #8b949e; }
+    .text-sm { font-size: 12px; }
+
+    .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 80px; margin: 8px 0; }
+    .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; height: 100%; justify-content: flex-end; }
+    .bar { width: 100%; background: #1f6feb; border-radius: 3px 3px 0 0; min-height: 2px; }
+    .bar-label { font-size: 10px; color: #8b949e; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <span class="nav-brand">redlib-api / admin</span>
+    <span class="nav-actions">
+      <form method="post" action="{{ request.url_for('logout') }}">
+        <button class="btn btn-sm" style="border-color:#30363d;color:#8b949e;background:transparent">sign out</button>
+      </form>
+    </span>
+  </nav>
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>
